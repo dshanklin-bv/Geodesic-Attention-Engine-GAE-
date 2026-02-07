@@ -1,7 +1,7 @@
 //! GAE Attention Benchmarks
 
 use criterion::{black_box, criterion_group, criterion_main, Criterion};
-use ate::{waller_operator, GAEConfig};
+use ate::{waller_operator, standard_attention, GAEConfig};
 
 fn bench_waller_operator(c: &mut Criterion) {
     let config = GAEConfig::gpt2_small();
@@ -29,7 +29,12 @@ fn bench_waller_operator(c: &mut Criterion) {
 }
 
 criterion_group!(benches, bench_waller_operator);
-criterion_main!(benches, parallel_benches, gpu_benches, large_benches, huge_benches);
+
+#[cfg(feature = "wgpu")]
+criterion_main!(benches, parallel_benches, gpu_benches, large_benches, huge_benches, control_benches);
+
+#[cfg(not(feature = "wgpu"))]
+criterion_main!(benches, parallel_benches, large_benches, huge_benches, control_benches);
 
 fn bench_waller_parallel(c: &mut Criterion) {
     let config = ate::GAEConfig::gpt2_small();
@@ -204,3 +209,65 @@ criterion_group!(huge_benches, bench_waller_gpu_4k, bench_waller_4k_parallel);
 
 #[cfg(not(feature = "wgpu"))]
 criterion_group!(huge_benches, bench_waller_4k_parallel);
+
+// --- Control group: standard O(N²) attention ---
+
+fn bench_standard_512(c: &mut Criterion) {
+    let config = GAEConfig::gpt2_small();
+    let seq_len = 512;
+    let head_dim = config.head_dim;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.002).cos()).collect();
+    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.003).sin()).collect();
+
+    c.bench_function("standard_512_seq", |b| {
+        b.iter(|| {
+            standard_attention(
+                black_box(&q), black_box(&k), black_box(&v),
+                black_box(seq_len), black_box(head_dim), black_box(scale),
+            )
+        })
+    });
+}
+
+fn bench_standard_2048(c: &mut Criterion) {
+    let seq_len = 2048;
+    let head_dim = 128;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.002).cos()).collect();
+    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.003).sin()).collect();
+
+    c.bench_function("standard_2048_seq", |b| {
+        b.iter(|| {
+            standard_attention(
+                black_box(&q), black_box(&k), black_box(&v),
+                black_box(seq_len), black_box(head_dim), black_box(scale),
+            )
+        })
+    });
+}
+
+fn bench_standard_4096(c: &mut Criterion) {
+    let seq_len = 4096;
+    let head_dim = 128;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.001).sin()).collect();
+    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.002).cos()).collect();
+    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.003).sin()).collect();
+
+    c.bench_function("standard_4096_seq", |b| {
+        b.iter(|| {
+            standard_attention(
+                black_box(&q), black_box(&k), black_box(&v),
+                black_box(seq_len), black_box(head_dim), black_box(scale),
+            )
+        })
+    });
+}
+
+criterion_group!(control_benches, bench_standard_512, bench_standard_2048, bench_standard_4096);

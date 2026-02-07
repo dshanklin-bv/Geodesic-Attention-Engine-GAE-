@@ -125,3 +125,40 @@ fn test_ate_config_presets() {
     assert_eq!(llama.num_heads, 32);
     assert_eq!(llama.head_dim, 128);
 }
+
+#[test]
+fn test_standard_attention_causal() {
+    let seq_len = 4;
+    let head_dim = 2;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q = vec![1.0; seq_len * head_dim];
+    let k = vec![1.0; seq_len * head_dim];
+    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| i as f32).collect();
+
+    let output = standard_attention(&q, &k, &v, seq_len, head_dim, scale);
+
+    assert_eq!(output.len(), seq_len * head_dim);
+    // First token only sees itself, so output == v[0..2]
+    assert_relative_eq!(output[0], v[0], epsilon = 1e-4);
+    assert_relative_eq!(output[1], v[1], epsilon = 1e-4);
+}
+
+#[test]
+fn test_standard_vs_waller_equivalence() {
+    let seq_len = 16;
+    let head_dim = 8;
+    let scale = 1.0 / (head_dim as f32).sqrt();
+
+    let q: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.1).sin()).collect();
+    let k: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.2).cos()).collect();
+    let v: Vec<f32> = (0..seq_len * head_dim).map(|i| (i as f32 * 0.05).sin()).collect();
+
+    let standard = standard_attention(&q, &k, &v, seq_len, head_dim, scale);
+    let waller = waller_operator(&q, &k, &v, seq_len, head_dim, scale);
+
+    assert_eq!(standard.len(), waller.len());
+    for i in 0..standard.len() {
+        assert_relative_eq!(standard[i], waller[i], epsilon = 1e-4);
+    }
+}

@@ -6,6 +6,13 @@ authors = ["Eric Waller <e@ewaller.com>"]
 description = "Geodesic Attention Engine - Physics-based AI compute optimization"
 license = "Proprietary"
 
+[lib]
+path = "rust_src/src/lib.rs"
+
+[[bin]]
+name = "ate"
+path = "rust_src/src/main.rs"
+
 [features]
 default = ["std", "rayon"]
 std = []
