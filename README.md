@@ -1,74 +1,127 @@
-# Geodesic Attention Engine (GAE)
+
+Geodesic Attention Engine (GAE)
+[
+
+](https://doi.org/10.5281/zenodo.18512336)
+[
+
+](https://www.gnu.org/licenses/agpl-3.0)
 
 My name is Eric Waller, and it's my hope that this project helps.
 
-GAE is a fused attention implementation that finds the shortest path through the attention computation—reducing memory traffic by eliminating unnecessary round-trips to high-bandwidth memory (HBM).
+GAE computes exact transformer attention with fewer memory operations. The Fused Waller Kernel reduces HBM round-trips from 12 to 2, achieving O(N) memory complexity instead of O(N²).
 
-## What GAE Does
+📄 Full Technical Specification — Deep dive into the math and implementation
 
-Standard transformer attention implementations read and write to HBM multiple times during a single attention computation. Each trip costs energy and time. GAE fuses the entire attention operation—Q, K, V projection, softmax, and output—into a single kernel that touches HBM only twice: once to load, once to store.
+Quick Results
+On NVIDIA H100 80GB:
 
-**The core insight:** Most attention implementations optimize individual operations. GAE optimizes the path between them.
+Sequence Length	Standard Attention Memory	GAE Memory	Reduction
+65,536	17.25 GB	0.62 GB	99.6%
+262,144	275 GB (impossible)	0.82 GB	✓ Works
+1,048,576	4.4 TB (impossible)	1.09 GB	✓ Works
+GAE enables 1M+ token sequences on hardware that can't fit 64K with standard attention.
 
-## How It Works
+How It Works
+Standard attention:
 
-### The Fused Waller Operator
 
-Traditional attention requires 12 HBM round-trips:
-Load Q, Compute, Store, Load K, Compute, Store, Load V, Compute, Store, Load QK^T, Softmax, Store, Load, Apply V, Store, Output
 
-GAE requires 2 HBM round-trips:
-Load Q, K, V → Compute Everything in Registers → Store Output
+Load Q → Compute → Store → Load K → Compute → Store → Load V → ... (12 HBM trips)
+GAE:
 
-### Key Techniques
 
-1. **Online Softmax**: Computes softmax in a single streaming pass without materializing the full attention matrix. Reduces memory complexity from O(N²) to O(N).
 
-2. **Welford Streaming Statistics**: Maintains running mean and variance with numerical stability, enabling bit-exact deterministic results across runs.
+Load Q,K,V → Compute Everything in Registers → Store Output (2 HBM trips)
+Key techniques:
 
-3. **Register-Level Fusion**: Q, K, V, intermediate products, and softmax all stay in registers. Nothing hits HBM until the final output.
+Online Softmax — Single streaming pass, no O(N²) intermediate matrix
+Register-Level Fusion — Q·Kᵀ, softmax, ×V all in registers
+Welford Statistics — Numerically stable, bit-exact determinism
+Installation
+bash
 
-## Measured Results
 
-Benchmarks on NVIDIA H100, sequence length 4096, head dimension 64:
-
-| Metric | Standard | GAE | Change |
-|--------|----------|-----|--------|
-| HBM Round-trips | 12 | 2 | -83% |
-| Memory Complexity | O(N²) | O(N) | Linear |
-| Energy per Token | Baseline | -23% to -37% | Tok/J |
-| Determinism | Variable | Bit-exact | Reproducible |
-
-## Installation
-
-Clone and build with Cargo:
-
-    git clone https://github.com/RegularJoe-CEO/Geodesic-Attention-Engine-GAE-.git
-    cd Geodesic-Attention-Engine-GAE-
-    cargo build --release
-
+git clone https://github.com/RegularJoe-CEO/Geodesic-Attention-Engine-GAE-.git
+cd Geodesic-Attention-Engine-GAE-
+cargo build --release
 Requirements: CUDA 11.8+, Rust 1.70+, NVIDIA GPU (Ampere+)
 
-## Backends
+Benchmarks
+Full benchmark results with exact commands: benches/BENCHMARK_RESULTS.md
 
-- **CUDA** — Production, tested on A100/H100
-- **Rust** — Reference implementation
-- **WebGPU** — Experimental
+Run Benchmarks Yourself
+Rust reference implementation:
 
-## What GAE Is Not
+bash
 
-GAE is not an approximation—it computes exact attention. Not sparse—every query attends to every key. Not a FlashAttention replacement in all cases; FlashAttention has more features and broader support. GAE demonstrates further fusion is possible.
 
-## Citation
+cargo bench
+CUDA O(1) Memory Kernel (production):
 
-See repository for citation format.
+bash
 
-## License
 
-AGPL-3.0
+cd cuda_src
+nvcc -O3 -arch=sm_90 waller_operator.cu -o waller_bench
+./waller_bench
+CUDA Tiled cuBLAS Kernel (tensor cores):
 
-## Contact
+bash
 
+
+cd cuda_src
+nvcc -O3 -arch=sm_90 waller_v7.cu -lcublas -o waller_v7_bench
+./waller_v7_bench
+INT8 Quantized Kernel:
+
+bash
+
+
+cd cuda_src
+nvcc -O3 -arch=sm_90 waller_operator_int8_tiled.cu -o int8_bench
+./int8_bench
+Minimal Usage Example
+rust
+
+
+use gae::{WallerKernel, AttentionConfig};
+
+let config = AttentionConfig {
+    seq_len: 4096,
+    head_dim: 64,
+    num_heads: 12,
+};
+
+let kernel = WallerKernel::new(&config)?;
+let output = kernel.forward(&q, &k, &v);  // 2 HBM trips, bit-exact
+See benches/usage_example.rs for complete example.
+
+Backends
+Backend	Status	Notes
+CUDA	Production	Tested on A100/H100
+Rust	Reference	Pure implementation
+WebGPU	Experimental	Browser support
+What GAE Is Not
+Not approximate — Computes exact attention, every query attends to every key
+Not sparse — Full attention matrix semantics
+Not a FlashAttention replacement — FlashAttention has broader ecosystem support; GAE demonstrates further fusion is possible
+Citation
+
+
+@software{waller2026gae,
+  author = {Waller, Eric},
+  title = {Geodesic Attention Engine: Fused O(N) Exact Attention},
+  year = {2026},
+  doi = {10.5281/zenodo.18512336},
+  url = {https://github.com/RegularJoe-CEO/Geodesic-Attention-Engine-GAE-}
+}
+License
+AGPL-3.0 — See LICENSE
+
+Contact
 Eric Waller
 e@ewaller.com
 https://luxiedge.com
+
+© 2026 Eric Waller — Patent Pending
